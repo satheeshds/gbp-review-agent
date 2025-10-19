@@ -11,9 +11,11 @@ import 'dotenv/config';
 import { McpServer } from './server/mcpServer.js';
 import { logger } from './utils/logger.js';
 import { validateEnvironment } from './utils/config.js';
+import { fileURLToPath } from 'url';
 
 async function main() {
     try {
+        logger.info('Initializing Google Business Profile Review MCP Server...');
         // Validate environment variables
         validateEnvironment();
         
@@ -56,9 +58,17 @@ async function main() {
     }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Convert the current module's URL to a filesystem path
+const __filename = fileURLToPath(import.meta.url);
+
+// Check if this file is being run directly
+if (process.argv[1] === __filename) {
+    // Entry point - start the server
     main().catch((error) => {
         logger.error('Fatal error:', error);
         process.exit(1);
     });
+} else {
+    // Being imported as a module
+    logger.info('Service not started', { moduleFile: __filename });
 }

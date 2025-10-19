@@ -33,6 +33,10 @@ export interface Config {
  * @throws Error if required environment variables are missing
  */
 export function validateEnvironment(): Config {
+    const isMockMode = process.env.NODE_ENV === 'test' || 
+                      process.env.NODE_ENV === 'development' || 
+                      process.env.ENABLE_MOCK_MODE === 'true';
+    
     const requiredVars = [
         'GOOGLE_CLIENT_ID',
         'GOOGLE_CLIENT_SECRET',
@@ -42,21 +46,24 @@ export function validateEnvironment(): Config {
     
     const missing: string[] = [];
     
-    for (const varName of requiredVars) {
-        if (!process.env[varName]) {
-            missing.push(varName);
+    // Only validate Google API credentials if not in mock mode
+    if (!isMockMode) {
+        for (const varName of requiredVars) {
+            if (!process.env[varName]) {
+                missing.push(varName);
+            }
+        }
+        
+        if (missing.length > 0) {
+            throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
         }
     }
     
-    if (missing.length > 0) {
-        throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
-    }
-    
     return {
-        googleClientId: process.env.GOOGLE_CLIENT_ID!,
-        googleClientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-        googleRedirectUri: process.env.GOOGLE_REDIRECT_URI!,
-        googleApiKey: process.env.GOOGLE_API_KEY!,
+        googleClientId: process.env.GOOGLE_CLIENT_ID || 'mock-client-id',
+        googleClientSecret: process.env.GOOGLE_CLIENT_SECRET || 'mock-client-secret',
+        googleRedirectUri: process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/auth/callback',
+        googleApiKey: process.env.GOOGLE_API_KEY || 'mock-api-key',
         port: parseInt(process.env.PORT || '3000'),
         host: process.env.HOST || 'localhost',
         mcpServerName: process.env.MCP_SERVER_NAME || 'google-business-review-mcp-server',

@@ -364,7 +364,7 @@ export class McpServer {
     }
     
     async start(): Promise<void> {
-        const transportMode = process.env.TRANSPORT_MODE || 'http';
+        const transportMode = process.env.TRANSPORT_MODE || 'stdio';
         
         if (transportMode === 'stdio') {
             await this.startStdioTransport();
@@ -380,6 +380,13 @@ export class McpServer {
         await this.server.connect(transport);
         
         logger.info(`MCP server started with STDIO transport`);
+        
+        // Keep the process alive for STDIO transport
+        // The transport will handle stdin/stdout communication
+        return new Promise<void>(() => {
+            // This promise never resolves, keeping the process alive
+            // The process will only exit via signal handlers or errors
+        });
     }
     
     private async startHttpTransport(): Promise<void> {

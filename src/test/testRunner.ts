@@ -295,15 +295,15 @@ export class MCPServerTester {
 
         logger.info('📋 Test Report:', report);
         
-        console.log('\n🎉 MCP SERVER TEST SUMMARY');
-        console.log('============================');
-        console.log(`✅ Mock Locations: ${report.mockData.totalLocations}`);
-        console.log(`✅ Mock Reviews: ${report.mockData.totalReviews}`);
-        console.log(`✅ Average Rating: ${report.mockData.averageRating}/5`);
-        console.log(`✅ Reply Rate: ${report.mockData.replyRate}%`);
-        console.log(`✅ Test Scenarios: ${report.testResults.testScenariosExecuted}`);
-        console.log(`✅ Mock Mode: ${report.testResults.mockMode ? 'Enabled' : 'Disabled'}`);
-        console.log('\n🚀 Your MCP Server is ready for testing!');
+        process.stderr.write('\n🎉 MCP SERVER TEST SUMMARY\n');
+        process.stderr.write('============================\n');
+        process.stderr.write(`✅ Mock Locations: ${report.mockData.totalLocations}\n`);
+        process.stderr.write(`✅ Mock Reviews: ${report.mockData.totalReviews}\n`);
+        process.stderr.write(`✅ Average Rating: ${report.mockData.averageRating}/5\n`);
+        process.stderr.write(`✅ Reply Rate: ${report.mockData.replyRate}%\n`);
+        process.stderr.write(`✅ Test Scenarios: ${report.testResults.testScenariosExecuted}\n`);
+        process.stderr.write(`✅ Mock Mode: ${report.testResults.mockMode ? 'Enabled' : 'Disabled'}\n`);
+        process.stderr.write('\n🚀 Your MCP Server is ready for testing!\n');
     }
 
     /**

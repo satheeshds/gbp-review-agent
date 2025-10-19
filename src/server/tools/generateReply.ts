@@ -20,8 +20,8 @@
 import { z } from 'zod';
 import { logger } from '../../utils/logger.js';
 import type { LLMService } from '../../services/llmService.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { GenerateReplyParams } from '../../types/index.js';
+import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 export interface GenerateReplyTool {
     schema: {
@@ -53,15 +53,15 @@ export function createGenerateReplyTool(llmService: LLMService): GenerateReplyTo
                 includePersonalization: z.boolean().optional().default(true)
                     .describe('Whether to include personalized references to the review content')
             },
-            outputSchema: {
-                replyText: z.string(),
-                tone: z.string(),
-                sentiment: z.enum(['positive', 'negative', 'neutral']),
-                confidence: z.number().min(0).max(1)
-            }
+            outputSchema: z.object({
+                content: z.array(z.object({
+                    type: z.string(),
+                    text: z.string()
+                }))
+            })
         },
         
-        handler: async (args: any): Promise<CallToolResult> => {
+        handler: async (args: any): Promise<any> => {
             try {
                 const params: GenerateReplyParams = {
                     reviewText: args.reviewText,
@@ -86,39 +86,15 @@ export function createGenerateReplyTool(llmService: LLMService): GenerateReplyTo
                 
                 // Validate inputs
                 if (!reviewText?.trim()) {
-                    return {
-                        content: [
-                            {
-                                type: 'text',
-                                text: 'Error: reviewText is required and cannot be empty'
-                            }
-                        ],
-                        isError: true
-                    };
+                    throw new Error('reviewText is required and cannot be empty');
                 }
                 
                 if (!businessName?.trim()) {
-                    return {
-                        content: [
-                            {
-                                type: 'text',
-                                text: 'Error: businessName is required and cannot be empty'
-                            }
-                        ],
-                        isError: true
-                    };
+                    throw new Error('businessName is required and cannot be empty');
                 }
                 
                 if (starRating < 1 || starRating > 5) {
-                    return {
-                        content: [
-                            {
-                                type: 'text',
-                                text: 'Error: starRating must be between 1 and 5'
-                            }
-                        ],
-                        isError: true
-                    };
+                    throw new Error('starRating must be between 1 and 5');
                 }
                 
                 const result = await llmService.generateReply(
@@ -132,35 +108,26 @@ export function createGenerateReplyTool(llmService: LLMService): GenerateReplyTo
                 );
                 
                 if (!result.success) {
-                    return {
-                        content: [
-                            {
-                                type: 'text',
-                                text: `Error: ${result.error}`
-                            }
-                        ],
-                        isError: true
-                    };
+                    throw new Error(result.error || 'Failed to generate reply');
                 }
                 
                 const replyData = result.data!;
                 
                 logger.info(`Successfully generated reply with ${replyData.tone} tone and ${replyData.confidence} confidence`);
                 
-                return {
+                const response = {
                     content: [
                         {
                             type: 'text',
-                            text: `Generated reply for ${businessName}:\n\n` +
-                                  `**Original Review (${starRating}⭐):**\n"${reviewText}"\n\n` +
-                                  `**Generated Reply (${replyData.tone} tone):**\n"${replyData.replyText}"\n\n` +
-                                  `**Analysis:**\n` +
-                                  `- Sentiment: ${replyData.sentiment}\n` +
-                                  `- Confidence: ${Math.round(replyData.confidence * 100)}%\n` +
-                                  `- Tone: ${replyData.tone}`
+                            text: `Generated reply for "${businessName}":\n\n` +
+                                  `${replyData.replyText}\n\n` +
+                                  `Tone: ${replyData.tone}\n` +
+                                  `Sentiment: ${replyData.sentiment}\n` +
+                                  `Confidence: ${Math.round(replyData.confidence * 100)}%`
                         }
                     ]
                 };
+                return response;
                 
             } catch (error) {
                 logger.error('Error in generate_reply tool:', error);

@@ -13,9 +13,11 @@ interface LogEntry {
 
 class Logger {
     private logLevel: LogLevel;
+    private isStdioTransport: boolean;
     
     constructor() {
         this.logLevel = (process.env.LOG_LEVEL as LogLevel) || 'info';
+        this.isStdioTransport = process.env.TRANSPORT_MODE === 'stdio';
     }
     
     private shouldLog(level: LogLevel): boolean {
@@ -48,13 +50,9 @@ class Logger {
         
         const formattedMessage = this.formatMessage(level, message, data);
         
-        // Write to stderr for logging (as per MCP best practices for stdio transport)
-        // For HTTP transport, we can use stdout
-        if (level === 'error') {
-            console.error(formattedMessage);
-        } else {
-            console.error(formattedMessage);
-        }
+        // Always write to stderr when using STDIO transport (MCP protocol uses stdin/stdout)
+        // For HTTP transport, stderr is also appropriate for server logs
+        process.stderr.write(formattedMessage + '\n');
     }
     
     debug(message: string, data?: any): void {
@@ -71,6 +69,19 @@ class Logger {
     
     error(message: string, data?: any): void {
         this.log('error', message, data);
+    }
+    
+    /**
+     * Debug output for STDIO transport - only outputs in non-production environments
+     * and when log level is debug. Always writes to stderr to avoid interfering with
+     * MCP protocol messages on stdin/stdout.
+     */
+    stdioDebug(message: string): void {
+        if (this.isStdioTransport && 
+            this.logLevel === 'debug' && 
+            process.env.NODE_ENV !== 'production') {
+            process.stderr.write(`[STDIO DEBUG] ${message}\n`);
+        }
     }
 }
 
