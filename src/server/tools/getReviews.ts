@@ -17,9 +17,8 @@
 
 import { z } from 'zod';
 import { logger } from '../../utils/logger.js';
-import type { ReviewService } from '../../services/reviewService.js';
+import type { IReviewService, GetReviewsParams } from '../../types/index.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { GetReviewsParams } from '../../types/index.js';
 
 export interface GetReviewsTool {
     schema: {
@@ -35,7 +34,7 @@ export interface GetReviewsTool {
     handler: (params: GetReviewsParams) => Promise<CallToolResult>;
 }
 
-export function createGetReviewsTool(reviewService: ReviewService): GetReviewsTool {
+export function createGetReviewsTool(reviewService: IReviewService): GetReviewsTool {
     return {
         schema: {
             title: 'Get Business Reviews',

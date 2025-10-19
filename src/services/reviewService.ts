@@ -14,10 +14,11 @@ import type {
     ListLocationsResponse,
     GetReviewsResponse,
     PostReplyResponse,
-    ServiceResponse 
+    ServiceResponse,
+    IReviewService
 } from '../types/index.js';
 
-export class ReviewService {
+export class ReviewService implements IReviewService {
     private mybusinessbusinessinformation: any;
     private mybusinessaccountmanagement: any;
     

@@ -11,8 +11,10 @@
     "build": "tsc",
     "start": "node build/index.js",
     "dev": "tsx src/index.ts",
+    "test": "npm run build && node build/test/runTests.js",
+    "test:mock": "npm run build && node build/test/runTests.js --mock",
+    "test:dev": "tsx src/test/runTests.ts",
     "lint": "eslint src/**/*.ts",
-    "test": "jest",
     "clean": "rm -rf build"
   },
   "keywords": [

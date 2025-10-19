@@ -5,7 +5,7 @@
 
 import { z } from 'zod';
 import { logger } from '../../utils/logger.js';
-import type { ReviewService } from '../../services/reviewService.js';
+import type { IReviewService } from '../../types/index.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 export interface ListLocationsTool {
@@ -18,7 +18,7 @@ export interface ListLocationsTool {
     handler: (args: any) => Promise<CallToolResult>;
 }
 
-export function createListLocationsTool(reviewService: ReviewService): ListLocationsTool {
+export function createListLocationsTool(reviewService: IReviewService): ListLocationsTool {
     return {
         schema: {
             title: 'List Business Locations',

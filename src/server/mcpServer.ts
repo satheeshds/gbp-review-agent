@@ -13,7 +13,9 @@ import { getConfig } from '../utils/config.js';
 import { logger } from '../utils/logger.js';
 import { GoogleAuthService } from '../services/googleAuth.js';
 import { ReviewService } from '../services/reviewService.js';
+import { MockReviewService } from '../services/mockReviewService.js';
 import { LLMService } from '../services/llmService.js';
+import type { IReviewService } from '../types/index.js';
 
 // Import tool implementations
 import { createListLocationsTool } from './tools/listLocations.js';
@@ -36,11 +38,17 @@ export class McpServer {
     private httpServer?: any;
     
     // Services
-    private googleAuthService: GoogleAuthService;
-    private reviewService: ReviewService;
+    private googleAuthService?: GoogleAuthService;
+    private reviewService: IReviewService;
     private llmService: LLMService;
+    private isMockMode: boolean;
     
     constructor() {
+        // Check if we're in mock mode
+        this.isMockMode = process.env.NODE_ENV === 'test' || 
+                         process.env.NODE_ENV === 'development' || 
+                         process.env.ENABLE_MOCK_MODE === 'true';
+        
         // Initialize MCP server
         this.server = new BaseMcpServer(
             {
@@ -58,9 +66,16 @@ export class McpServer {
             }
         );
         
-        // Initialize services
-        this.googleAuthService = new GoogleAuthService();
-        this.reviewService = new ReviewService(this.googleAuthService);
+        // Initialize services based on mode
+        if (this.isMockMode) {
+            logger.info('🧪 Starting in MOCK MODE - No Google API required');
+            this.reviewService = new MockReviewService();
+        } else {
+            logger.info('🚀 Starting in PRODUCTION MODE - Google API required');
+            this.googleAuthService = new GoogleAuthService();
+            this.reviewService = new ReviewService(this.googleAuthService);
+        }
+        
         this.llmService = new LLMService();
         
         this.setupServer();
@@ -299,7 +314,11 @@ export class McpServer {
                     throw new Error('Authorization code not provided');
                 }
                 
-                await this.googleAuthService.handleCallback(code, state as string);
+                if (this.googleAuthService) {
+                    await this.googleAuthService.handleCallback(code, state as string);
+                } else {
+                    throw new Error('Google Auth Service not available in mock mode');
+                }
                 res.json({ success: true, message: 'Authentication successful' });
                 
             } catch (error) {

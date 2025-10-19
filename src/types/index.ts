@@ -193,3 +193,11 @@ export interface RateLimitInfo {
 
 // Configuration types (re-exported from config)
 export type { Config } from '../utils/config.js';
+
+// Common interface for both real and mock review services
+export interface IReviewService {
+    listLocations(): Promise<ServiceResponse<ListLocationsResponse>>;
+    getReviews(locationName: string, pageSize?: number, pageToken?: string): Promise<ServiceResponse<GetReviewsResponse>>;
+    postReply(locationName: string, reviewId: string, replyText: string): Promise<ServiceResponse<PostReplyResponse>>;
+    getBusinessProfile(locationName?: string): Promise<ServiceResponse<BusinessProfile>>;
+}

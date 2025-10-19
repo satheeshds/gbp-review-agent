@@ -4,8 +4,7 @@
  */
 
 import { logger } from '../../utils/logger.js';
-import type { ReviewService } from '../../services/reviewService.js';
-import type { BusinessProfile, GetResourceResult } from '../../types/index.js';
+import type { IReviewService, BusinessProfile, GetResourceResult } from '../../types/index.js';
 
 export interface BusinessProfileResource {
     uri: string;
@@ -15,7 +14,7 @@ export interface BusinessProfileResource {
     handler: () => Promise<GetResourceResult>;
 }
 
-export function createBusinessProfileResource(reviewService: ReviewService): BusinessProfileResource {
+export function createBusinessProfileResource(reviewService: IReviewService): BusinessProfileResource {
     return {
         uri: 'business_profile://profile',
         name: 'Business Profile',
