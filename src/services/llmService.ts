@@ -3,16 +3,54 @@
  */
 
 import { logger } from '../utils/logger.js';
+import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/protocol.js';
 import type { 
     GenerateReplyResponse, 
     ServiceResponse,
     ReviewResponseContext
 } from '../types/index.js';
+import { CreateMessageRequest, CreateMessageRequestSchema, ServerNotification, ServerRequest, ToolResultContent } from '@modelcontextprotocol/sdk/types.js';
+
+type SendRequest = RequestHandlerExtra<ServerRequest, ServerNotification>['sendRequest'];
+const requestSampling = async (prompt: string, sendRequest: SendRequest) => {
+    const request: CreateMessageRequest = {
+        method: "sampling/createMessage",
+        params: {
+            messages: [
+                {
+                    role: "user",
+                    content: {
+                        type: "text",
+                        text: prompt
+                    }
+                }
+            ],
+            systemPrompt: "Generate a professional and appropriate response to the customer review provided.",
+            maxTokens: 500,
+            temperature: 0.7,
+            includeContext: "thisServer"
+        }
+    };
+
+    const response: any = await sendRequest(request, CreateMessageRequestSchema);
+    return response.content.text;
+
+}; 
 
 export class LLMService {
+    private samplingCallback?: (prompt: string) => Promise<string>;
     
-    constructor() {
-        logger.debug('LLM Service initialized');
+    constructor(samplingCallback?: (prompt: string) => Promise<string>) {
+        this.samplingCallback = samplingCallback;
+        logger.debug('LLM Service initialized', { hasSampling: !!samplingCallback });
+    }
+    
+    /**
+     * Set the sampling callback for LLM requests
+     */
+    setSamplingCallback(callback: (prompt: string) => Promise<string>): void {
+        this.samplingCallback = callback;
+        logger.debug('Sampling callback registered');
     }
     
     /**
@@ -20,17 +58,13 @@ export class LLMService {
      * This method will use MCP's sampling capability to generate responses
      */
     async generateReply(
-        reviewText: string,
-        starRating: number,
-        businessName: string,
-        options: {
-            replyTone?: 'professional' | 'friendly' | 'apologetic' | 'grateful';
-            includePersonalization?: boolean;
-            maxLength?: number;
-        } = {}
-    ): Promise<ServiceResponse<GenerateReplyResponse>> {
+reviewText: string, starRating: number, businessName: string, options: {
+    replyTone?: 'professional' | 'friendly' | 'apologetic' | 'grateful';
+    includePersonalization?: boolean;
+    maxLength?: number;
+} = {}, extra: RequestHandlerExtra<ServerRequest, ServerNotification>    ): Promise<ServiceResponse<GenerateReplyResponse>> {
         try {
-            logger.debug('Generating reply for review', { starRating, businessName });
+            logger.debug('Generating reply for review', { starRating, businessName, hasSampling: !!this.samplingCallback });
             
             const {
                 replyTone = this.determineToneFromRating(starRating),
@@ -44,14 +78,32 @@ export class LLMService {
             // Create prompt for LLM
             const prompt = this.createReplyPrompt(reviewText, starRating, businessName, replyTone, includePersonalization);
             
-            // In a real implementation, this would use MCP sampling
-            // For now, we'll generate a template-based response
-            const replyText = this.generateTemplateResponse(reviewText, starRating, businessName, replyTone);
+            let replyText: string;
+            let confidence: number;
             
-            // Calculate confidence based on various factors
-            const confidence = this.calculateConfidence(reviewText, starRating, replyText);
+            // Try to use LLM sampling if available
+            if (this.samplingCallback) {
+                try {
+                    logger.info('Using AI sampling for reply generation');
+                    replyText = await this.samplingCallback(prompt);
+                    confidence = 0.9; // High confidence for AI-generated replies
+                    logger.info('AI-generated reply received', { length: replyText.length });
+                } catch (samplingError) {
+                    logger.warn('AI sampling failed, falling back to template', { error: samplingError });
+                    replyText = this.generateTemplateResponse(reviewText, starRating, businessName, replyTone);
+                    confidence = this.calculateConfidence(reviewText, starRating, replyText);
+                }
+            } else {
+                logger.info('No AI sampling available, using template response');
+                replyText = await requestSampling(prompt, extra.sendRequest);
+                confidence = 0.9; // High confidence for AI-generated replies
+                // Fallback to template-based response
+                // logger.debug('No AI sampling available, using template response');
+                // replyText = this.generateTemplateResponse(reviewText, starRating, businessName, replyTone);
+                // confidence = this.calculateConfidence(reviewText, starRating, replyText);
+            }
             
-            logger.info('Reply generated successfully', { sentiment, confidence });
+            logger.info('Reply generated successfully', { sentiment, confidence, method: this.samplingCallback ? 'AI' : 'template' });
             
             return {
                 success: true,

@@ -5,6 +5,7 @@
 import { google } from 'googleapis';
 import { getConfig } from '../utils/config.js';
 import { logger } from '../utils/logger.js';
+import { loadTokens, saveTokens } from '../utils/tokenStorage.js';
 import type { GoogleOAuthTokens, AuthState } from '../types/index.js';
 
 export class GoogleAuthService {
@@ -19,6 +20,20 @@ export class GoogleAuthService {
             this.config.googleRedirectUri
         );
         
+        // Load stored tokens if available
+        const storedTokens = loadTokens();
+        if (storedTokens) {
+            this.tokens = storedTokens;
+            this.oauth2Client.setCredentials({
+                access_token: storedTokens.access_token,
+                refresh_token: storedTokens.refresh_token,
+                expiry_date: storedTokens.expires_at
+            });
+            logger.info('✅ Loaded stored authentication tokens');
+        } else {
+            logger.warn('⚠️  No stored tokens found. Run: node authenticate.js');
+        }
+        
         // Set up token refresh handling
         this.oauth2Client.on('tokens', (tokens: any) => {
             if (tokens.refresh_token) {
@@ -27,7 +42,11 @@ export class GoogleAuthService {
                     ...tokens,
                     expires_at: Date.now() + (tokens.expires_in * 1000)
                 };
-                logger.debug('Tokens refreshed');
+                // Save updated tokens
+                if (this.tokens) {
+                    saveTokens(this.tokens);
+                    logger.debug('Tokens refreshed and saved');
+                }
             }
         });
     }

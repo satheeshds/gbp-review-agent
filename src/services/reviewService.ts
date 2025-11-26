@@ -38,52 +38,70 @@ export class ReviewService implements IReviewService {
             
             logger.debug('Fetching business locations...');
             
-            // First, get the account
-            const accountsResponse = await this.mybusinessaccountmanagement.accounts.list();
+            // First, get the accounts
+            const accountsResponse = await this.mybusinessaccountmanagement.accounts.list({
+                pageSize: 100
+            });
+            
             const accounts = accountsResponse.data.accounts || [];
             
             if (accounts.length === 0) {
                 return {
                     success: false,
-                    error: 'No business accounts found'
+                    error: 'No business accounts found. Please ensure your Google account has a Google Business Profile.'
                 };
             }
             
-            // Get locations for the first account
-            const accountName = accounts[0].name;
-            const locationsResponse = await this.mybusinessbusinessinformation.accounts.locations.list({
-                parent: accountName
-            });
+            logger.debug(`Found ${accounts.length} business account(s)`);
             
-            const locations: BusinessLocation[] = (locationsResponse.data.locations || []).map((location: any) => ({
-                name: location.name,
-                locationName: location.name,
-                primaryPhone: location.primaryPhone,
-                websiteUri: location.websiteUri,
-                address: location.address ? {
-                    addressLines: location.address.addressLines || [],
-                    locality: location.address.locality || '',
-                    administrativeArea: location.address.administrativeArea || '',
-                    postalCode: location.address.postalCode || '',
-                    regionCode: location.address.regionCode || ''
-                } : undefined
-            }));
+            // Collect locations from all accounts
+            const allLocations: BusinessLocation[] = [];
             
-            logger.info(`Found ${locations.length} business locations`);
+            for (const account of accounts) {
+                const accountName = account.name;
+                logger.debug(`Fetching locations for account: ${accountName}`);
+                
+                try {
+                    const locationsResponse = await this.mybusinessbusinessinformation.accounts.locations.list({
+                        parent: accountName,
+                        readMask: 'name,title,storefrontAddress,websiteUri,phoneNumbers'
+                    });
+                    
+                    const locations = (locationsResponse.data.locations || []).map((location: any) => ({
+                        name: location.name,
+                        locationName: location.title || location.name,
+                        primaryPhone: location.phoneNumbers?.[0]?.phoneNumber,
+                        websiteUri: location.websiteUri,
+                        address: location.storefrontAddress ? {
+                            addressLines: location.storefrontAddress.addressLines || [],
+                            locality: location.storefrontAddress.locality || '',
+                            administrativeArea: location.storefrontAddress.administrativeArea || '',
+                            postalCode: location.storefrontAddress.postalCode || '',
+                            regionCode: location.storefrontAddress.regionCode || ''
+                        } : undefined
+                    }));
+                    
+                    allLocations.push(...locations);
+                } catch (locationError: any) {
+                    logger.warn(`Error fetching locations for account ${accountName}:`, locationError.message);
+                }
+            }
+            
+            logger.info(`Found ${allLocations.length} business location(s) total`);
             
             return {
                 success: true,
                 data: {
-                    locations,
-                    nextPageToken: locationsResponse.data.nextPageToken
+                    locations: allLocations,
+                    nextPageToken: undefined
                 }
             };
             
-        } catch (error) {
+        } catch (error: any) {
             logger.error('Error listing locations:', error);
             return {
                 success: false,
-                error: 'Failed to fetch business locations',
+                error: error.message || 'Failed to fetch business locations',
                 errorCode: 'LOCATIONS_FETCH_ERROR'
             };
         }
@@ -98,35 +116,96 @@ export class ReviewService implements IReviewService {
             
             logger.debug(`Fetching reviews for location: ${locationName}`);
             
-            // Note: Google My Business API v4 is deprecated, using the available endpoints
-            // This is a simplified implementation - actual implementation may vary based on available APIs
+            // Build the full path: accounts/{accountId}/locations/{locationId}
+            let fullLocationPath = locationName;
+            if (!locationName.includes('accounts/')) {
+                const accountsResponse = await this.mybusinessaccountmanagement.accounts.list({
+                    pageSize: 1
+                });
+                const accounts = accountsResponse.data.accounts || [];
+                if (accounts.length > 0) {
+                    fullLocationPath = `${accounts[0].name}/${locationName}`;
+                }
+            }
             
-            const response = await this.mybusinessbusinessinformation.accounts.locations.getGoogleUpdated({
-                name: locationName
+            logger.debug(`Full location path: ${fullLocationPath}`);
+            
+            // Use direct HTTP request to Google My Business API v4
+            const auth = this.authService.getAuthenticatedClient();
+            const accessToken = (await auth.getAccessToken()).token;
+            
+            // Build URL with query parameters
+            let url = `https://mybusiness.googleapis.com/v4/${fullLocationPath}/reviews?pageSize=${pageSize}`;
+            if (pageToken) {
+                url += `&pageToken=${pageToken}`;
+            }
+            
+            logger.debug(`API Request URL: ${url}`);
+            logger.debug(`Using Access Token: ${accessToken}`);
+            
+            const fetch = (await import('node-fetch')).default;
+            
+            const response = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                }
             });
             
-            // Transform the response to match our expected format
-            const reviews: GoogleReview[] = [];
+            if (!response.ok) {
+                const errorText = await response.text();
+                logger.error(`API request failed: ${response.status} - ${errorText}`);
+                throw new Error(`API request failed: ${response.status} - ${errorText}`);
+            }
             
-            // Since direct review access is limited, this is a placeholder implementation
-            // In a real implementation, you would use the appropriate Google My Business API endpoints
+            const data: any = await response.json();
             
-            logger.info(`Found ${reviews.length} reviews for location ${locationName}`);
+            logger.debug(`API Response:`, JSON.stringify(data, null, 2));
+            
+            const allReviews: GoogleReview[] = (data.reviews || []).map((review: any) => ({
+                reviewId: review.reviewId || review.name?.split('/').pop() || '',
+                reviewer: {
+                    profilePhotoUrl: review.reviewer?.profilePhotoUrl,
+                    displayName: review.reviewer?.displayName || 'Anonymous',
+                    isAnonymous: review.reviewer?.isAnonymous || false
+                },
+                starRating: review.starRating || 'STAR_RATING_UNSPECIFIED',
+                comment: review.comment || '',
+                createTime: review.createTime || new Date().toISOString(),
+                updateTime: review.updateTime || new Date().toISOString(),
+                reviewReply: review.reviewReply ? {
+                    comment: review.reviewReply.comment || '',
+                    updateTime: review.reviewReply.updateTime || new Date().toISOString()
+                } : undefined,
+                name: review.name || ''
+            }));
+            
+            // Filter out reviews that already have replies
+            const reviews = allReviews.filter(review => !review.reviewReply);
+            
+            // If no reviews without replies found but there's a next page, fetch it recursively
+            if (reviews.length === 0 && data.nextPageToken) {
+                logger.debug(`No reviews without replies on this page, fetching next page...`);
+                return this.getReviews(locationName, pageSize, data.nextPageToken);
+            }
+            
+            logger.info(`Found ${reviews.length} reviews without replies out of ${allReviews.length} total reviews (total count: ${data.totalReviewCount || allReviews.length})`);
             
             return {
                 success: true,
                 data: {
                     reviews,
-                    nextPageToken: pageToken,
-                    totalSize: reviews.length
+                    nextPageToken: data.nextPageToken,
+                    totalSize: data.totalReviewCount || reviews.length
                 }
             };
             
-        } catch (error) {
+        } catch (error: any) {
             logger.error('Error fetching reviews:', error);
             return {
                 success: false,
-                error: 'Failed to fetch reviews',
+                error: error.message || 'Failed to fetch reviews',
                 errorCode: 'REVIEWS_FETCH_ERROR'
             };
         }
@@ -141,37 +220,73 @@ export class ReviewService implements IReviewService {
             
             logger.debug(`Posting reply to review ${reviewId} for location ${locationName}`);
             
-            // Note: This is a simplified implementation
-            // The actual Google My Business API endpoints for posting replies may differ
+            // Build the full path: accounts/{accountId}/locations/{locationId}
+            let fullLocationPath = locationName;
+            if (!locationName.includes('accounts/')) {
+                const accountsResponse = await this.mybusinessaccountmanagement.accounts.list({
+                    pageSize: 1
+                });
+                const accounts = accountsResponse.data.accounts || [];
+                if (accounts.length > 0) {
+                    fullLocationPath = `${accounts[0].name}/${locationName}`;
+                }
+            }
+            
+            // Build review path
+            const reviewPath = `${fullLocationPath}/reviews/${reviewId}`;
+            logger.debug(`Review path: ${reviewPath}`);
+            
+            // Use direct HTTP request to Google My Business API v4 for posting reply
+            const auth = this.authService.getAuthenticatedClient();
+            const accessToken = (await auth.getAccessToken()).token;
+            
+            const url = `https://mybusiness.googleapis.com/v4/${reviewPath}/reply`;
             
             const replyData = {
                 comment: replyText
             };
             
-            // Placeholder for actual API call
-            // const response = await this.mybusinessbusinessinformation.accounts.locations.reviews.reply({
-            //     name: `${locationName}/reviews/${reviewId}`,
-            //     requestBody: replyData
-            // });
+            logger.debug(`API Request URL: ${url}`);
+            logger.debug(`Reply data:`, JSON.stringify(replyData, null, 2));
             
-            const postedAt = new Date().toISOString();
+            const fetch = (await import('node-fetch')).default;
             
-            logger.info(`Reply posted successfully to review ${reviewId}`);
+            const response = await fetch(url, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(replyData)
+            });
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                logger.error(`API request failed: ${response.status} - ${errorText}`);
+                throw new Error(`API request failed: ${response.status} - ${errorText}`);
+            }
+            
+            const responseData: any = await response.json();
+            logger.debug(`API Response:`, JSON.stringify(responseData, null, 2));
+            
+            const postedAt = responseData.updateTime || new Date().toISOString();
+            
+            logger.info(`✅ Reply posted successfully to review ${reviewId}`);
             
             return {
                 success: true,
                 data: {
                     success: true,
-                    replyId: `reply_${Date.now()}`,
+                    replyId: reviewId,
                     postedAt
                 }
             };
             
-        } catch (error) {
+        } catch (error: any) {
             logger.error('Error posting reply:', error);
             return {
                 success: false,
-                error: 'Failed to post reply',
+                error: error.message || 'Failed to post reply',
                 errorCode: 'REPLY_POST_ERROR'
             };
         }
@@ -199,26 +314,40 @@ export class ReviewService implements IReviewService {
                 targetLocation = locationsResult.data.locations[0].name;
             }
             
-            logger.debug(`Fetching business profile for location: ${targetLocation}`);
+            // Build full path if needed
+            let fullLocationPath = targetLocation;
+            if (!targetLocation.includes('accounts/')) {
+                const accountsResponse = await this.mybusinessaccountmanagement.accounts.list({
+                    pageSize: 1
+                });
+                const accounts = accountsResponse.data.accounts || [];
+                if (accounts.length > 0) {
+                    fullLocationPath = `${accounts[0].name}/${targetLocation}`;
+                }
+            }
+            
+            logger.debug(`Fetching business profile for location: ${fullLocationPath}`);
             
             const response = await this.mybusinessbusinessinformation.accounts.locations.get({
-                name: targetLocation
+                name: fullLocationPath
             });
             
             const location = response.data;
             
+            logger.debug(`Location details:`, JSON.stringify(location, null, 2));
+            
             // Enhance with business profile specific information
             const businessProfile: BusinessProfile = {
                 name: location.name || '',
-                locationName: location.name || '',
-                primaryPhone: location.primaryPhone,
+                locationName: location.title || location.name || '',
+                primaryPhone: location.phoneNumbers?.[0]?.phoneNumber,
                 websiteUri: location.websiteUri,
-                address: location.address ? {
-                    addressLines: location.address.addressLines || [],
-                    locality: location.address.locality || '',
-                    administrativeArea: location.address.administrativeArea || '',
-                    postalCode: location.address.postalCode || '',
-                    regionCode: location.address.regionCode || ''
+                address: location.storefrontAddress ? {
+                    addressLines: location.storefrontAddress.addressLines || [],
+                    locality: location.storefrontAddress.locality || '',
+                    administrativeArea: location.storefrontAddress.administrativeArea || '',
+                    postalCode: location.storefrontAddress.postalCode || '',
+                    regionCode: location.storefrontAddress.regionCode || ''
                 } : undefined,
                 businessType: location.primaryCategory?.displayName || 'business',
                 language: location.languageCode || 'en',
@@ -226,18 +355,18 @@ export class ReviewService implements IReviewService {
                 categories: location.additionalCategories?.map((cat: any) => cat.displayName).filter(Boolean) || []
             };
             
-            logger.info(`Business profile fetched for ${targetLocation}`);
+            logger.info(`Business profile fetched for ${fullLocationPath}`);
             
             return {
                 success: true,
                 data: businessProfile
             };
             
-        } catch (error) {
+        } catch (error: any) {
             logger.error('Error fetching business profile:', error);
             return {
                 success: false,
-                error: 'Failed to fetch business profile',
+                error: error.message || 'Failed to fetch business profile',
                 errorCode: 'PROFILE_FETCH_ERROR'
             };
         }

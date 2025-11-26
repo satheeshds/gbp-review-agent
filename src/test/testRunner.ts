@@ -7,14 +7,29 @@ import { MockReviewService } from '../services/mockReviewService.js';
 import { LLMService } from '../services/llmService.js';
 import { logger } from '../utils/logger.js';
 import { testConfig, mockTestData } from './testConfig.js';
+import { AnySchema, SchemaOutput } from '@modelcontextprotocol/sdk/server/zod-compat.js';
+import { RequestHandlerExtra, RequestOptions } from '@modelcontextprotocol/sdk/shared/protocol.js';
+import { ServerNotification, ServerRequest } from '@modelcontextprotocol/sdk/types.js';
+import { th } from 'zod/v4/locales';
 
 export class MCPServerTester {
     private mockReviewService: MockReviewService;
     private llmService: LLMService;
+    private extra: RequestHandlerExtra<ServerRequest, ServerNotification>;
 
     constructor() {
         this.mockReviewService = new MockReviewService();
         this.llmService = new LLMService();
+        this.extra = {
+                    signal: AbortSignal.timeout(30000),
+                    requestId: '',
+                    sendNotification: function (notification: ServerNotification): Promise<void> {
+                        throw new Error('Function not implemented.');
+                    },
+                    sendRequest: function <U extends AnySchema>(request: ServerRequest, resultSchema: U, options?: RequestOptions): Promise<SchemaOutput<U>> {
+                        throw new Error('Function not implemented.');
+                    }
+                }
         logger.info('MCP Server Tester initialized');
     }
 
@@ -123,7 +138,8 @@ export class MCPServerTester {
                 {
                     replyTone: this.getToneForRating(starRating),
                     includePersonalization: true
-                }
+                },
+                this.extra
             );
 
             if (!result.success || !result.data) {
@@ -243,14 +259,14 @@ export class MCPServerTester {
         logger.info('🔍 Testing edge cases...');
         
         // Test empty review text
-        const emptyReviewResult = await this.llmService.generateReply('', 3, 'Test Business');
+        const emptyReviewResult = await this.llmService.generateReply('', 3, 'Test Business', {}, this.extra);
         if (!emptyReviewResult.success) {
             logger.info('✅ Empty review text handled correctly');
         }
 
         // Test very long review text
         const longReview = 'This is a very long review. '.repeat(100);
-        const longReviewResult = await this.llmService.generateReply(longReview, 4, 'Test Business');
+        const longReviewResult = await this.llmService.generateReply(longReview, 4, 'Test Business', {}, this.extra);
         if (longReviewResult.success && longReviewResult.data) {
             logger.info('✅ Long review text handled correctly');
         }
@@ -261,6 +277,7 @@ export class MCPServerTester {
             5,
             'Café & Bistro™',
             { replyTone: 'grateful' }
+            , this.extra
         );
         if (specialCharsResult.success) {
             logger.info('✅ Special characters in business name handled correctly');

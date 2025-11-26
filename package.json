@@ -11,7 +11,7 @@
     "build": "tsc",
     "start": "node build/index.js",
     "start:mock": "cross-env NODE_ENV=development ENABLE_MOCK_MODE=true node build/index.js",
-    "start:http": "cross-env NODE_ENV=development ENABLE_MOCK_MODE=true node build/index.js --transport=http",
+    "auth": "node authenticate.js",
     "dev": "tsx src/index.ts",
     "test": "npm run build && node build/test/runTests.js",
     "test:mock": "npm run build && node build/test/runTests.js --mock",
@@ -21,7 +21,6 @@
     "setup:vscode": "node setup-vscode-copilot.js",
     "logs": "node monitor-logs.js",
     "logs:debug": "cross-env LOG_LEVEL=debug node monitor-logs.js",
-    "logs:stdio": "cross-env TRANSPORT_MODE=stdio LOG_LEVEL=warn node monitor-logs.js",
     "lint": "eslint src/**/*.ts",
     "clean": "rm -rf build"
   },
@@ -36,16 +35,15 @@
   "author": "Your Name",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
-    "cors": "^2.8.5",
+    "@modelcontextprotocol/sdk": "^1.23.0",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "googleapis": "^128.0.0",
     "node-fetch": "^3.3.2",
+    "open": "^10.0.0",
     "zod": "^3.22.0"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/node": "^20.10.0",
     "@typescript-eslint/eslint-plugin": "^6.13.1",

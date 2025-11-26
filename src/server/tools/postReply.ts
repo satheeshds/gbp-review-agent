@@ -16,6 +16,9 @@ export interface PostReplyTool {
             locationName: any;
             reviewId: any;
             replyText: any;
+            reviewText?: any;
+            starRating?: any;
+            reviewerName?: any;
         };
         outputSchema: any;
     };
@@ -30,7 +33,10 @@ export function createPostReplyTool(reviewService: IReviewService): PostReplyToo
             inputSchema: {
                 locationName: z.string().describe('The full resource name of the business location'),
                 reviewId: z.string().describe('The ID of the review to reply to'),
-                replyText: z.string().min(1).max(4096).describe('The reply text to post (max 4096 characters)')
+                replyText: z.string().min(1).max(4096).describe('The reply text to post (max 4096 characters)'),
+                reviewText: z.string().optional().describe('The original review text (for context display)'),
+                starRating: z.string().optional().describe('The original star rating (for context display)'),
+                reviewerName: z.string().optional().describe('The name of the reviewer (for context display)')
             },
             outputSchema: {
                 success: z.boolean(),

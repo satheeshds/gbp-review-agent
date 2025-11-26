@@ -7,7 +7,6 @@ export interface Config {
     googleClientId: string;
     googleClientSecret: string;
     googleRedirectUri: string;
-    googleApiKey: string;
     
     // Server configuration
     port: number;
@@ -40,8 +39,7 @@ export function validateEnvironment(): Config {
     const requiredVars = [
         'GOOGLE_CLIENT_ID',
         'GOOGLE_CLIENT_SECRET',
-        'GOOGLE_REDIRECT_URI',
-        'GOOGLE_API_KEY'
+        'GOOGLE_REDIRECT_URI'
     ];
     
     const missing: string[] = [];
@@ -63,7 +61,6 @@ export function validateEnvironment(): Config {
         googleClientId: process.env.GOOGLE_CLIENT_ID || 'mock-client-id',
         googleClientSecret: process.env.GOOGLE_CLIENT_SECRET || 'mock-client-secret',
         googleRedirectUri: process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/auth/callback',
-        googleApiKey: process.env.GOOGLE_API_KEY || 'mock-api-key',
         port: parseInt(process.env.PORT || '3000'),
         host: process.env.HOST || 'localhost',
         mcpServerName: process.env.MCP_SERVER_NAME || 'google-business-review-mcp-server',

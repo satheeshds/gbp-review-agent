@@ -21,7 +21,8 @@ import { z } from 'zod';
 import { logger } from '../../utils/logger.js';
 import type { LLMService } from '../../services/llmService.js';
 import type { GenerateReplyParams } from '../../types/index.js';
-import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { CallToolResult, ServerNotification, ServerRequest } from '@modelcontextprotocol/sdk/types.js';
+import { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/protocol.js';
 
 export interface GenerateReplyTool {
     schema: {
@@ -36,7 +37,7 @@ export interface GenerateReplyTool {
         };
         outputSchema: any;
     };
-    handler: (params: GenerateReplyParams) => Promise<CallToolResult>;
+    handler: (params: GenerateReplyParams, extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => Promise<CallToolResult>;
 }
 
 export function createGenerateReplyTool(llmService: LLMService): GenerateReplyTool {
@@ -61,7 +62,7 @@ export function createGenerateReplyTool(llmService: LLMService): GenerateReplyTo
             })
         },
         
-        handler: async (args: any): Promise<any> => {
+        handler: async (args: any, extra: RequestHandlerExtra<ServerRequest, ServerNotification>): Promise<any> => {
             try {
                 const params: GenerateReplyParams = {
                     reviewText: args.reviewText,
@@ -85,9 +86,9 @@ export function createGenerateReplyTool(llmService: LLMService): GenerateReplyTo
                 } = params;
                 
                 // Validate inputs
-                if (!reviewText?.trim()) {
-                    throw new Error('reviewText is required and cannot be empty');
-                }
+                // if (!reviewText?.trim()) {
+                //     throw new Error('reviewText is required and cannot be empty');
+                // }
                 
                 if (!businessName?.trim()) {
                     throw new Error('businessName is required and cannot be empty');
@@ -104,7 +105,8 @@ export function createGenerateReplyTool(llmService: LLMService): GenerateReplyTo
                     {
                         replyTone,
                         includePersonalization
-                    }
+                    }, 
+                    extra
                 );
                 
                 if (!result.success) {

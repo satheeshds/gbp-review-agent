@@ -4,9 +4,6 @@
 
 import { McpServer as BaseMcpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import express from 'express';
-import cors from 'cors';
 import { z } from 'zod';
 
 import { getConfig } from '../utils/config.js';
@@ -30,12 +27,13 @@ import { createReviewTemplatesResource } from './resources/reviewTemplates.js';
 // Import prompt implementations
 import { createReviewResponsePrompt } from './prompts/reviewResponse.js';
 import { createSentimentAnalysisPrompt } from './prompts/sentimentAnalysis.js';
+import { createManageReviewsPrompt } from './prompts/manageReviews.js';
+import { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/protocol.js';
+import { ServerNotification, ServerRequest } from '@modelcontextprotocol/sdk/types.js';
 
 export class McpServer {
     private config = getConfig();
     private server: BaseMcpServer;
-    private app?: express.Application;
-    private httpServer?: any;
     
     // Services
     private googleAuthService?: GoogleAuthService;
@@ -60,8 +58,7 @@ export class McpServer {
                     tools: {},
                     resources: {},
                     prompts: {},
-                    logging: {},
-                    sampling: {}
+                    logging: {}
                 }
             }
         );
@@ -76,6 +73,8 @@ export class McpServer {
             this.reviewService = new ReviewService(this.googleAuthService);
         }
         
+        // Initialize LLM service
+        // Note: Sampling capability will be added when MCP SDK supports it directly
         this.llmService = new LLMService();
         
         this.setupServer();
@@ -139,8 +138,8 @@ export class McpServer {
                 inputSchema: generateReplyTool.schema.inputSchema,
                 outputSchema: generateReplyTool.schema.outputSchema
             },
-            async (args: any) => {
-                return await generateReplyTool.handler(args);
+            async (args: any, extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => {
+                return await generateReplyTool.handler(args, extra);
             }
         );
         
@@ -171,7 +170,6 @@ export class McpServer {
             'business_profile',
             businessProfileResource.uri,
             { 
-                name: businessProfileResource.name,
                 description: businessProfileResource.description,
                 mimeType: businessProfileResource.mimeType
             },
@@ -189,7 +187,6 @@ export class McpServer {
             'review_templates',
             reviewTemplatesResource.uri,
             {
-                name: reviewTemplatesResource.name,
                 description: reviewTemplatesResource.description,
                 mimeType: reviewTemplatesResource.mimeType
             },
@@ -284,96 +281,43 @@ export class McpServer {
                 };
             }
         );
+
+        // Manage pending reviews prompt
+        const manageReviewsPrompt = createManageReviewsPrompt(this.reviewService);
+        this.server.registerPrompt(
+            'manage_pending_reviews',
+            {
+                title: 'Manage Pending Reviews',
+                description: manageReviewsPrompt.description,
+                argsSchema: {
+                    locationName: z.string().optional().describe('Specific location to check (optional)')
+                }
+            },
+            async (args: any) => {
+                const context = {
+                    locationName: args.locationName
+                };
+                const prompt = await manageReviewsPrompt.handler(context);
+                return {
+                    description: 'Instructions to manage pending reviews',
+                    messages: [
+                        {
+                            role: 'user',
+                            content: {
+                                type: 'text',
+                                text: prompt
+                            }
+                        }
+                    ]
+                };
+            }
+        );
         
         logger.debug('Prompts registered successfully');
     }
     
-    private setupHttpServer(): void {
-        logger.info('Setting up HTTP server for Streamable HTTP transport...');
-        
-        this.app = express();
-        
-        // Middleware
-        this.app.use(cors({
-            origin: '*',
-            methods: ['GET', 'POST', 'DELETE'],
-            allowedHeaders: ['Content-Type', 'Authorization', 'Mcp-Session-Id']
-        }));
-        this.app.use(express.json());
-        
-        // Health check endpoint
-        this.app.get('/health', (req, res) => {
-            res.json({ status: 'healthy', timestamp: new Date().toISOString() });
-        });
-        
-        // OAuth callback endpoint for Google authentication
-        this.app.get('/auth/callback', async (req, res) => {
-            try {
-                const { code, state } = req.query;
-                if (!code || typeof code !== 'string') {
-                    throw new Error('Authorization code not provided');
-                }
-                
-                if (this.googleAuthService) {
-                    await this.googleAuthService.handleCallback(code, state as string);
-                } else {
-                    throw new Error('Google Auth Service not available in mock mode');
-                }
-                res.json({ success: true, message: 'Authentication successful' });
-                
-            } catch (error) {
-                logger.error('OAuth callback error:', error);
-                res.status(400).json({ 
-                    success: false, 
-                    error: error instanceof Error ? error.message : 'Authentication failed' 
-                });
-            }
-        });
-        
-        // MCP endpoint for Streamable HTTP transport
-        this.app.post('/mcp', async (req, res) => {
-            try {
-                const transport = new StreamableHTTPServerTransport({
-                    sessionIdGenerator: undefined,
-                    enableJsonResponse: true
-                });
-                
-                res.on('close', () => {
-                    transport.close();
-                });
-                
-                await this.server.connect(transport);
-                await transport.handleRequest(req, res, req.body);
-                
-            } catch (error) {
-                logger.error('MCP request error:', error);
-                if (!res.headersSent) {
-                    res.status(500).json({
-                        jsonrpc: '2.0',
-                        error: {
-                            code: -32603,
-                            message: 'Internal server error'
-                        },
-                        id: null
-                    });
-                }
-            }
-        });
-        
-        logger.info('HTTP server setup completed');
-    }
     
     async start(): Promise<void> {
-        const transportMode = process.env.TRANSPORT_MODE || 'stdio';
-        
-        if (transportMode === 'stdio') {
-            await this.startStdioTransport();
-        } else {
-            await this.startHttpTransport();
-        }
-    }
-    
-    private async startStdioTransport(): Promise<void> {
         logger.info('Starting MCP server with STDIO transport...');
         
         const transport = new StdioServerTransport();
@@ -389,44 +333,8 @@ export class McpServer {
         });
     }
     
-    private async startHttpTransport(): Promise<void> {
-        logger.info('Starting MCP server with HTTP transport...');
-        
-        this.setupHttpServer();
-        
-        return new Promise((resolve, reject) => {
-            try {
-                this.httpServer = this.app!.listen(this.config.port, this.config.host, () => {
-                    logger.info(`MCP server listening on http://${this.config.host}:${this.config.port}`);
-                    logger.info(`MCP endpoint available at http://${this.config.host}:${this.config.port}/mcp`);
-                    logger.info(`OAuth callback URL: http://${this.config.host}:${this.config.port}/auth/callback`);
-                    resolve();
-                });
-                
-                this.httpServer.on('error', (error: Error) => {
-                    logger.error('HTTP server error:', error);
-                    reject(error);
-                });
-                
-            } catch (error) {
-                logger.error('Failed to start HTTP server:', error);
-                reject(error);
-            }
-        });
-    }
-    
     async stop(): Promise<void> {
         logger.info('Stopping MCP server...');
-        
-        if (this.httpServer) {
-            return new Promise((resolve) => {
-                this.httpServer!.close(() => {
-                    logger.info('HTTP server stopped');
-                    resolve();
-                });
-            });
-        }
-        
         logger.info('MCP server stopped');
     }
 }

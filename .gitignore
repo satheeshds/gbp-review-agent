@@ -174,3 +174,7 @@ yarn.lock
 
 # PNPM lock file (if using pnpm)  
 pnpm-lock.yaml
+
+client_secret*.json
+.tokens.json
+rest-collection/

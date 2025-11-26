@@ -23,13 +23,20 @@ A Model Context Protocol (MCP) server that enables AI assistants to manage Googl
 
 1. Go to the [Google Cloud Console](https://console.cloud.google.com)
 2. Create a new project or select an existing one
-3. Enable the Google My Business API
+3. **Enable the following APIs**:
+   - Go to "APIs & Services" > "Library"
+   - Search for and enable **"Google My Business API"**
+   - Search for and enable **"My Business Business Information API"**
 4. Create OAuth 2.0 credentials:
    - Go to "Credentials" in the API & Services section
    - Click "Create Credentials" > "OAuth 2.0 Client IDs"
    - Set application type to "Web application"
    - Add authorized redirect URI: `http://localhost:3000/auth/callback`
    - Note down the Client ID and Client Secret
+5. **Configure OAuth Consent Screen**:
+   - Go to "APIs & Services" > "OAuth consent screen"
+   - Add test users (your Google account email that has access to the business profile)
+   - Add required scopes: `business.manage`, `userinfo.email`, `userinfo.profile`
 
 ### 2. Installation
 
@@ -60,18 +67,32 @@ Required environment variables:
 - `GOOGLE_CLIENT_SECRET`: Your Google OAuth 2.0 Client Secret
 - `GOOGLE_REDIRECT_URI`: OAuth redirect URI (default: http://localhost:3000/auth/callback)
 
-### 4. Running the Server
+### 4. Authentication
+
+Before running the server, you need to authenticate with Google:
 
 ```bash
-# Development mode
-npm run dev
-
-# Production mode
-npm run build
-npm start
+# Run the authentication helper
+npm run auth
 ```
 
-The server will start on `http://localhost:3000` by default.
+This will:
+1. Open your browser to Google's authentication page
+2. Ask you to grant permissions to access your Google Business Profile
+3. Save the authentication tokens locally
+4. These tokens will be automatically used by the MCP server
+
+### 5. Running the Server
+
+```bash
+# Start the server with your authenticated credentials
+npm start
+
+# Or in development/mock mode for testing
+npm run start:mock
+```
+
+The server will start with STDIO transport for MCP communication.
 
 ## Usage
 
