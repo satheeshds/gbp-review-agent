@@ -178,3 +178,5 @@ pnpm-lock.yaml
 client_secret*.json
 .tokens.json
 rest-collection/
+manifest.json
+review-mcp.mcpb

@@ -35,6 +35,7 @@ export interface GoogleReview {
     reviewer: {
         profilePhotoUrl?: string;
         displayName: string;
+        isAnonymous?: boolean;
     };
     starRating: 'ONE' | 'TWO' | 'THREE' | 'FOUR' | 'FIVE';
     comment?: string;
@@ -44,6 +45,7 @@ export interface GoogleReview {
         comment: string;
         updateTime: string;
     };
+    name?: string;
 }
 
 export interface ReviewReply {

@@ -5,7 +5,11 @@
 
 import { google } from 'googleapis';
 import { GoogleAuthService } from './googleAuth.js';
+import { GoogleMyBusinessApiClient } from './apiClient.js';
 import { logger } from '../utils/logger.js';
+import { DEFAULTS, ERROR_CODES } from '../utils/constants.js';
+import { buildFullLocationPath, buildReviewPath, logPathResolution } from '../utils/pathHelpers.js';
+import { mapApiReviewToGoogleReview, mapApiLocationToBusinessLocation, filterUnrepliedReviews, extractCategories } from '../utils/mappers.js';
 import type { 
     BusinessLocation,
     BusinessProfile,
@@ -21,12 +25,27 @@ import type {
 export class ReviewService implements IReviewService {
     private mybusinessbusinessinformation: any;
     private mybusinessaccountmanagement: any;
+    private apiClient: GoogleMyBusinessApiClient;
     
     constructor(private authService: GoogleAuthService) {
         // Initialize Google My Business API clients
         const auth = this.authService.getAuthenticatedClient();
         this.mybusinessbusinessinformation = google.mybusinessbusinessinformation({ version: 'v1', auth });
         this.mybusinessaccountmanagement = google.mybusinessaccountmanagement({ version: 'v1', auth });
+        this.apiClient = new GoogleMyBusinessApiClient(authService);
+    }
+    
+    /**
+     * Resolves a location name to its full path
+     * @private
+     */
+    private async resolveLocationPath(locationName: string): Promise<string> {
+        if (locationName.includes('accounts/')) {
+            return locationName;
+        }
+        
+        const account = await this.apiClient.getFirstAccount();
+        return buildFullLocationPath(locationName, account.name);
     }
     
     /**
@@ -67,19 +86,9 @@ export class ReviewService implements IReviewService {
                         readMask: 'name,title,storefrontAddress,websiteUri,phoneNumbers'
                     });
                     
-                    const locations = (locationsResponse.data.locations || []).map((location: any) => ({
-                        name: location.name,
-                        locationName: location.title || location.name,
-                        primaryPhone: location.phoneNumbers?.[0]?.phoneNumber,
-                        websiteUri: location.websiteUri,
-                        address: location.storefrontAddress ? {
-                            addressLines: location.storefrontAddress.addressLines || [],
-                            locality: location.storefrontAddress.locality || '',
-                            administrativeArea: location.storefrontAddress.administrativeArea || '',
-                            postalCode: location.storefrontAddress.postalCode || '',
-                            regionCode: location.storefrontAddress.regionCode || ''
-                        } : undefined
-                    }));
+                    const locations = (locationsResponse.data.locations || []).map((location: any) => 
+                        mapApiLocationToBusinessLocation(location)
+                    );
                     
                     allLocations.push(...locations);
                 } catch (locationError: any) {
@@ -102,7 +111,7 @@ export class ReviewService implements IReviewService {
             return {
                 success: false,
                 error: error.message || 'Failed to fetch business locations',
-                errorCode: 'LOCATIONS_FETCH_ERROR'
+                errorCode: ERROR_CODES.LOCATIONS_FETCH_ERROR
             };
         }
     }
@@ -110,79 +119,32 @@ export class ReviewService implements IReviewService {
     /**
      * Get reviews for a specific business location
      */
-    async getReviews(locationName: string, pageSize = 50, pageToken?: string): Promise<ServiceResponse<GetReviewsResponse>> {
+    async getReviews(locationName: string, pageSize = DEFAULTS.PAGE_SIZE, pageToken?: string): Promise<ServiceResponse<GetReviewsResponse>> {
         try {
             await this.authService.refreshTokenIfNeeded();
             
             logger.debug(`Fetching reviews for location: ${locationName}`);
             
-            // Build the full path: accounts/{accountId}/locations/{locationId}
-            let fullLocationPath = locationName;
-            if (!locationName.includes('accounts/')) {
-                const accountsResponse = await this.mybusinessaccountmanagement.accounts.list({
-                    pageSize: 1
-                });
-                const accounts = accountsResponse.data.accounts || [];
-                if (accounts.length > 0) {
-                    fullLocationPath = `${accounts[0].name}/${locationName}`;
-                }
-            }
+            // Build the full path
+            const fullLocationPath = await this.resolveLocationPath(locationName);
+            logPathResolution(locationName, fullLocationPath, 'getReviews');
             
-            logger.debug(`Full location path: ${fullLocationPath}`);
-            
-            // Use direct HTTP request to Google My Business API v4
-            const auth = this.authService.getAuthenticatedClient();
-            const accessToken = (await auth.getAccessToken()).token;
-            
-            // Build URL with query parameters
-            let url = `https://mybusiness.googleapis.com/v4/${fullLocationPath}/reviews?pageSize=${pageSize}`;
+            // Fetch reviews using API client
+            const params: Record<string, any> = { pageSize };
             if (pageToken) {
-                url += `&pageToken=${pageToken}`;
+                params.pageToken = pageToken;
             }
             
-            logger.debug(`API Request URL: ${url}`);
-            logger.debug(`Using Access Token: ${accessToken}`);
-            
-            const fetch = (await import('node-fetch')).default;
-            
-            const response = await fetch(url, {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-            
-            if (!response.ok) {
-                const errorText = await response.text();
-                logger.error(`API request failed: ${response.status} - ${errorText}`);
-                throw new Error(`API request failed: ${response.status} - ${errorText}`);
-            }
-            
-            const data: any = await response.json();
+            const data = await this.apiClient.get<any>(
+                `${fullLocationPath}/reviews`,
+                params
+            );
             
             logger.debug(`API Response:`, JSON.stringify(data, null, 2));
             
-            const allReviews: GoogleReview[] = (data.reviews || []).map((review: any) => ({
-                reviewId: review.reviewId || review.name?.split('/').pop() || '',
-                reviewer: {
-                    profilePhotoUrl: review.reviewer?.profilePhotoUrl,
-                    displayName: review.reviewer?.displayName || 'Anonymous',
-                    isAnonymous: review.reviewer?.isAnonymous || false
-                },
-                starRating: review.starRating || 'STAR_RATING_UNSPECIFIED',
-                comment: review.comment || '',
-                createTime: review.createTime || new Date().toISOString(),
-                updateTime: review.updateTime || new Date().toISOString(),
-                reviewReply: review.reviewReply ? {
-                    comment: review.reviewReply.comment || '',
-                    updateTime: review.reviewReply.updateTime || new Date().toISOString()
-                } : undefined,
-                name: review.name || ''
-            }));
-            
-            // Filter out reviews that already have replies
-            const reviews = allReviews.filter(review => !review.reviewReply);
+            // Map and filter reviews
+            const allReviews = (data.reviews || []).map(mapApiReviewToGoogleReview);
+            const reviews = filterUnrepliedReviews(allReviews);
             
             // If no reviews without replies found but there's a next page, fetch it recursively
             if (reviews.length === 0 && data.nextPageToken) {
@@ -206,7 +168,7 @@ export class ReviewService implements IReviewService {
             return {
                 success: false,
                 error: error.message || 'Failed to fetch reviews',
-                errorCode: 'REVIEWS_FETCH_ERROR'
+                errorCode: ERROR_CODES.REVIEWS_FETCH_ERROR
             };
         }
     }
@@ -220,53 +182,19 @@ export class ReviewService implements IReviewService {
             
             logger.debug(`Posting reply to review ${reviewId} for location ${locationName}`);
             
-            // Build the full path: accounts/{accountId}/locations/{locationId}
-            let fullLocationPath = locationName;
-            if (!locationName.includes('accounts/')) {
-                const accountsResponse = await this.mybusinessaccountmanagement.accounts.list({
-                    pageSize: 1
-                });
-                const accounts = accountsResponse.data.accounts || [];
-                if (accounts.length > 0) {
-                    fullLocationPath = `${accounts[0].name}/${locationName}`;
-                }
-            }
+            // Build the full path
+            const fullLocationPath = await this.resolveLocationPath(locationName);
+            const reviewPath = buildReviewPath(fullLocationPath, reviewId);
             
-            // Build review path
-            const reviewPath = `${fullLocationPath}/reviews/${reviewId}`;
+            logPathResolution(locationName, fullLocationPath, 'postReply');
             logger.debug(`Review path: ${reviewPath}`);
             
-            // Use direct HTTP request to Google My Business API v4 for posting reply
-            const auth = this.authService.getAuthenticatedClient();
-            const accessToken = (await auth.getAccessToken()).token;
+            // Post the reply using API client
+            const responseData = await this.apiClient.put<any>(
+                `${reviewPath}/reply`,
+                { comment: replyText }
+            );
             
-            const url = `https://mybusiness.googleapis.com/v4/${reviewPath}/reply`;
-            
-            const replyData = {
-                comment: replyText
-            };
-            
-            logger.debug(`API Request URL: ${url}`);
-            logger.debug(`Reply data:`, JSON.stringify(replyData, null, 2));
-            
-            const fetch = (await import('node-fetch')).default;
-            
-            const response = await fetch(url, {
-                method: 'PUT',
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(replyData)
-            });
-            
-            if (!response.ok) {
-                const errorText = await response.text();
-                logger.error(`API request failed: ${response.status} - ${errorText}`);
-                throw new Error(`API request failed: ${response.status} - ${errorText}`);
-            }
-            
-            const responseData: any = await response.json();
             logger.debug(`API Response:`, JSON.stringify(responseData, null, 2));
             
             const postedAt = responseData.updateTime || new Date().toISOString();
@@ -287,7 +215,7 @@ export class ReviewService implements IReviewService {
             return {
                 success: false,
                 error: error.message || 'Failed to post reply',
-                errorCode: 'REPLY_POST_ERROR'
+                errorCode: ERROR_CODES.REPLY_POST_ERROR
             };
         }
     }
@@ -308,23 +236,15 @@ export class ReviewService implements IReviewService {
                     return {
                         success: false,
                         error: 'No business locations found',
-                        errorCode: 'NO_LOCATIONS_ERROR'
+                        errorCode: ERROR_CODES.NO_LOCATIONS_ERROR
                     };
                 }
                 targetLocation = locationsResult.data.locations[0].name;
             }
             
-            // Build full path if needed
-            let fullLocationPath = targetLocation;
-            if (!targetLocation.includes('accounts/')) {
-                const accountsResponse = await this.mybusinessaccountmanagement.accounts.list({
-                    pageSize: 1
-                });
-                const accounts = accountsResponse.data.accounts || [];
-                if (accounts.length > 0) {
-                    fullLocationPath = `${accounts[0].name}/${targetLocation}`;
-                }
-            }
+            // Build full path
+            const fullLocationPath = await this.resolveLocationPath(targetLocation);
+            logPathResolution(targetLocation, fullLocationPath, 'getBusinessProfile');
             
             logger.debug(`Fetching business profile for location: ${fullLocationPath}`);
             
@@ -336,23 +256,13 @@ export class ReviewService implements IReviewService {
             
             logger.debug(`Location details:`, JSON.stringify(location, null, 2));
             
-            // Enhance with business profile specific information
+            // Build business profile with enhanced information
             const businessProfile: BusinessProfile = {
-                name: location.name || '',
-                locationName: location.title || location.name || '',
-                primaryPhone: location.phoneNumbers?.[0]?.phoneNumber,
-                websiteUri: location.websiteUri,
-                address: location.storefrontAddress ? {
-                    addressLines: location.storefrontAddress.addressLines || [],
-                    locality: location.storefrontAddress.locality || '',
-                    administrativeArea: location.storefrontAddress.administrativeArea || '',
-                    postalCode: location.storefrontAddress.postalCode || '',
-                    regionCode: location.storefrontAddress.regionCode || ''
-                } : undefined,
+                ...mapApiLocationToBusinessLocation(location),
                 businessType: location.primaryCategory?.displayName || 'business',
                 language: location.languageCode || 'en',
                 description: location.title || '',
-                categories: location.additionalCategories?.map((cat: any) => cat.displayName).filter(Boolean) || []
+                categories: extractCategories(location)
             };
             
             logger.info(`Business profile fetched for ${fullLocationPath}`);
@@ -367,7 +277,7 @@ export class ReviewService implements IReviewService {
             return {
                 success: false,
                 error: error.message || 'Failed to fetch business profile',
-                errorCode: 'PROFILE_FETCH_ERROR'
+                errorCode: ERROR_CODES.PROFILE_FETCH_ERROR
             };
         }
     }

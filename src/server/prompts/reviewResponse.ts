@@ -103,8 +103,14 @@ export function createReviewResponsePrompt(): ReviewResponsePrompt {
    - Include relevant business-specific details if appropriate
    - Consider the ${businessType} context in your response
    - Reflect the local community connection if applicable
+   - **TIP:** You can access the business_profile://profile MCP resource for brand guidelines and tone recommendations
 
-6. **Length & Format:**
+6. **Template Inspiration (Optional):**
+   - You can access review_templates://templates MCP resource for example responses
+   - Use these as inspiration only - make your response unique and specific to this review
+   - Don't copy templates verbatim; personalize based on the actual review content
+
+7. **Length & Format:**
    - Keep response between 50-200 words
    - Use proper paragraph breaks for readability
    - Avoid overly long sentences

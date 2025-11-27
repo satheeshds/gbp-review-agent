@@ -5,6 +5,7 @@
 import { google } from 'googleapis';
 import { getConfig } from '../utils/config.js';
 import { logger } from '../utils/logger.js';
+import { GOOGLE_API } from '../utils/constants.js';
 import { loadTokens, saveTokens } from '../utils/tokenStorage.js';
 import type { GoogleOAuthTokens, AuthState } from '../types/index.js';
 
@@ -55,15 +56,9 @@ export class GoogleAuthService {
      * Generate the authorization URL for OAuth flow
      */
     getAuthUrl(state?: string): string {
-        const scopes = [
-            'https://www.googleapis.com/auth/business.manage',
-            'https://www.googleapis.com/auth/userinfo.email',
-            'https://www.googleapis.com/auth/userinfo.profile'
-        ];
-        
         return this.oauth2Client.generateAuthUrl({
             access_type: 'offline',
-            scope: scopes,
+            scope: GOOGLE_API.SCOPES,
             state: state,
             prompt: 'consent'
         });

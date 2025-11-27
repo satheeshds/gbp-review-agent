@@ -23,6 +23,8 @@ import { createPostReplyTool } from './tools/postReply.js';
 // Import resource implementations
 import { createBusinessProfileResource } from './resources/businessProfile.js';
 import { createReviewTemplatesResource } from './resources/reviewTemplates.js';
+import { createLocationsResource } from './resources/locations.js';
+import { createReviewsResource } from './resources/reviews.js';
 
 // Import prompt implementations
 import { createReviewResponsePrompt } from './prompts/reviewResponse.js';
@@ -198,6 +200,58 @@ export class McpServer {
             }
         );
         
+        // Locations resource
+        const locationsResource = createLocationsResource(this.reviewService);
+        this.server.registerResource(
+            'locations',
+            locationsResource.uri,
+            {
+                description: locationsResource.description,
+                mimeType: locationsResource.mimeType
+            },
+            async () => {
+                const result = await locationsResource.handler();
+                return {
+                    contents: result.contents
+                };
+            }
+        );
+        
+        // Reviews resource with dynamic location support
+        const reviewsResource = createReviewsResource(this.reviewService);
+        
+        // Register template for per-location reviews: reviews://{locationId}
+        this.server.registerResource(
+            'reviews_by_location',
+            'reviews://{locationId}',
+            {
+                description: 'Reviews for a specific business location. Use the location ID (e.g., locations/123456789)',
+                mimeType: reviewsResource.mimeType
+            },
+            async (uri: URL) => {
+                const result = await reviewsResource.handler(uri.href);
+                return {
+                    contents: result.contents
+                };
+            }
+        );
+        
+        // Also register reviews://all for convenience
+        this.server.registerResource(
+            'reviews_all',
+            'reviews://all',
+            {
+                description: 'All unreplied reviews across all business locations',
+                mimeType: reviewsResource.mimeType
+            },
+            async () => {
+                const result = await reviewsResource.handler('reviews://all');
+                return {
+                    contents: result.contents
+                };
+            }
+        );
+
         logger.debug('Resources registered successfully');
     }
     
@@ -283,23 +337,20 @@ export class McpServer {
         );
 
         // Manage pending reviews prompt
-        const manageReviewsPrompt = createManageReviewsPrompt(this.reviewService);
+        const manageReviewsPrompt = createManageReviewsPrompt();
         this.server.registerPrompt(
             'manage_pending_reviews',
             {
                 title: 'Manage Pending Reviews',
                 description: manageReviewsPrompt.description,
                 argsSchema: {
-                    locationName: z.string().optional().describe('Specific location to check (optional)')
+                    // locationName: z.string().optional().describe('Specific location to check (optional)')
                 }
             },
             async (args: any) => {
-                const context = {
-                    locationName: args.locationName
-                };
-                const prompt = await manageReviewsPrompt.handler(context);
+                const prompt = await manageReviewsPrompt.handler();
                 return {
-                    description: 'Instructions to manage pending reviews',
+                    description: 'Instructions to manage pending reviews using MCP resources',
                     messages: [
                         {
                             role: 'user',
