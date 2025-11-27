@@ -13,9 +13,9 @@ export function createManageReviewsPrompt() {
                 let prompt = `You are managing Google Business Profile reviews for a business.
 
 YOUR TASK:
-1. First, read the "locations://list" MCP resource to see available business locations
+1. First, read the locations MCP resource to see available business locations
 2. If multiple locations exist, ask the user which location they want to manage reviews for
-3. Once location is selected, read the dynamic reviews resource: "reviews://{locationId}"
+3. Once location is selected, read the dynamic reviews resource: "reviews_by_location"
    Replace {locationId} with the actual location ID (e.g., reviews://locations/6087465285515339471)
 4. For each review without a reply, analyze the content and sentiment
 5. Generate a professional, personalized reply (referencing specific details from the review)
@@ -25,13 +25,13 @@ YOUR TASK:
 **INSTRUCTIONS:**
 
 Step 1: Check available locations
-- Read: locations://list
+- Read: locations resource
 - This will show you all available business locations with their IDs
 - If multiple locations exist, present them to the user and ask which one to manage
 - If only one location, proceed automatically with that location
 
 Step 2: Get reviews for the selected location
-- Read the dynamic resource: reviews://{locationId}
+- Read the dynamic resource: reviews_by_location
 - Replace {locationId} with the full location ID from Step 1
 - Example: reviews://locations/6087465285515339471
 - This will show you all unreplied reviews for that specific location

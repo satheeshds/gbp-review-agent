@@ -12,6 +12,7 @@ import { McpServer } from './server/mcpServer.js';
 import { logger } from './utils/logger.js';
 import { validateEnvironment } from './utils/config.js';
 import { fileURLToPath } from 'url';
+import { resolve, normalize } from 'path';
 
 async function main() {
     try {
@@ -62,7 +63,11 @@ async function main() {
 const __filename = fileURLToPath(import.meta.url);
 
 // Check if this file is being run directly
-if (process.argv[1] === __filename) {
+// Normalize paths for cross-platform comparison (handles \ vs / and resolves symlinks)
+const currentFile = normalize(resolve(__filename));
+const entryPoint = normalize(resolve(process.argv[1]));
+
+if (entryPoint === currentFile) {
     // Entry point - start the server
     main().catch((error) => {
         logger.error('Fatal error:', error);
@@ -70,5 +75,5 @@ if (process.argv[1] === __filename) {
     });
 } else {
     // Being imported as a module
-    logger.info('Service not started', { moduleFile: __filename });
+    logger.info('Service not started', { moduleFile: currentFile, args: entryPoint });
 }
