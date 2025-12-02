@@ -34,11 +34,11 @@ export interface GetReviewsTool {
     handler: (params: GetReviewsParams) => Promise<CallToolResult>;
 }
 
-export function createGetReviewsTool(reviewService: IReviewService): GetReviewsTool {
+export function createGetUnRepliedReviewsTool(reviewService: IReviewService): GetReviewsTool {
     return {
         schema: {
-            title: 'Get Business Reviews',
-            description: 'Fetch reviews for a specific business location from Google Business Profile',
+            title: 'Get Unreplied Business Reviews',
+            description: 'Fetch unreplied reviews for a specific business location from Google Business Profile',
             inputSchema: {
                 locationName: z.string().describe('The full resource name of the business location (e.g., accounts/123/locations/456)'),
                 pageSize: z.number().optional().default(50).describe('Number of reviews to fetch (max 50)'),
@@ -72,7 +72,7 @@ export function createGetReviewsTool(reviewService: IReviewService): GetReviewsT
                     pageSize: args.pageSize,
                     pageToken: args.pageToken
                 };
-                logger.info('Executing get_reviews tool', { locationName: params.locationName });
+                logger.info('Executing get_unreplied_reviews tool', { locationName: params.locationName });
                 
                 const { locationName, pageSize = 50, pageToken } = params;
                 
@@ -101,7 +101,7 @@ export function createGetReviewsTool(reviewService: IReviewService): GetReviewsT
                     };
                 }
                 
-                const result = await reviewService.getReviews(locationName, pageSize, pageToken);
+                const result = await reviewService.getUnrepliedReviews(locationName, pageSize, pageToken);
                 
                 if (!result.success) {
                     return {
@@ -115,11 +115,9 @@ export function createGetReviewsTool(reviewService: IReviewService): GetReviewsT
                     };
                 }
                 
-                const reviews = result.data?.reviews || [];
+                const reviews = result.data || [];
                 const response = {
-                    reviews,
-                    nextPageToken: result.data?.nextPageToken,
-                    totalSize: result.data?.totalSize
+                    reviews
                 };
                 
                 logger.info(`Successfully fetched ${reviews.length} reviews for location ${locationName}`);
@@ -142,9 +140,7 @@ export function createGetReviewsTool(reviewService: IReviewService): GetReviewsT
                     content: [
                         {
                             type: 'text',
-                            text: `Reviews for ${locationName}:\n\n${reviewsText}${
-                                result.data?.nextPageToken ? '\n\nMore reviews available. Use the nextPageToken to fetch additional results.' : ''
-                            }`
+                            text: `Reviews for ${locationName}:\n\n${reviewsText}`
                         }
                     ],
                     structuredContent: response

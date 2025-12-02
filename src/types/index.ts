@@ -48,6 +48,27 @@ export interface GoogleReview {
     name?: string;
 }
 
+export interface GoogleReviewShort {
+    starRating: 'ONE' | 'TWO' | 'THREE' | 'FOUR' | 'FIVE';
+    comment?: string;
+    createTime: string;
+    updateTime: string;
+}
+
+export interface GoogleReviewStat {
+    totalReviewCount: number;
+    averageRating: number;
+    ratingDistribution: {
+        [key in 'ONE' | 'TWO' | 'THREE' | 'FOUR' | 'FIVE']: number;
+    };
+    comments: string[];
+}
+
+export interface GoogleReviewDayStat {
+    date: string; // YYYY-MM-DD
+    stat: GoogleReviewStat;
+}
+
 export interface ReviewReply {
     comment: string;
 }
@@ -202,4 +223,6 @@ export interface IReviewService {
     getReviews(locationName: string, pageSize?: number, pageToken?: string): Promise<ServiceResponse<GetReviewsResponse>>;
     postReply(locationName: string, reviewId: string, replyText: string): Promise<ServiceResponse<PostReplyResponse>>;
     getBusinessProfile(locationName?: string): Promise<ServiceResponse<BusinessProfile>>;
+    getUnrepliedReviews(locationName: string, pageSize?: number, pageToken?: string): Promise<ServiceResponse<GoogleReview[]>>;
+    getReviewStats(locationName: string): Promise<ServiceResponse<GoogleReviewDayStat[]>>;
 }

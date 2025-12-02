@@ -19,7 +19,10 @@ import type {
     GetReviewsResponse,
     PostReplyResponse,
     ServiceResponse,
-    IReviewService
+    IReviewService,
+    GoogleReviewStat,
+    GoogleReviewDayStat,
+    GoogleReviewShort
 } from '../types/index.js';
 
 export class ReviewService implements IReviewService {
@@ -143,23 +146,14 @@ export class ReviewService implements IReviewService {
             logger.debug(`API Response:`, JSON.stringify(data, null, 2));
             
             // Map and filter reviews
-            const allReviews = (data.reviews || []).map(mapApiReviewToGoogleReview);
-            const reviews = filterUnrepliedReviews(allReviews);
-            
-            // If no reviews without replies found but there's a next page, fetch it recursively
-            if (reviews.length === 0 && data.nextPageToken) {
-                logger.debug(`No reviews without replies on this page, fetching next page...`);
-                return this.getReviews(locationName, pageSize, data.nextPageToken);
-            }
-            
-            logger.info(`Found ${reviews.length} reviews without replies out of ${allReviews.length} total reviews (total count: ${data.totalReviewCount || allReviews.length})`);
+            const allReviews: GoogleReview[] = (data.reviews || []).map(mapApiReviewToGoogleReview);
             
             return {
                 success: true,
                 data: {
-                    reviews,
+                    reviews: allReviews,
                     nextPageToken: data.nextPageToken,
-                    totalSize: data.totalReviewCount || reviews.length
+                    totalSize: data.totalReviewCount || allReviews.length
                 }
             };
             
@@ -171,6 +165,122 @@ export class ReviewService implements IReviewService {
                 errorCode: ERROR_CODES.REVIEWS_FETCH_ERROR
             };
         }
+    }
+    
+    async getReviewStats(locationName: string): Promise<ServiceResponse<GoogleReviewDayStat[]>> {
+        const allReviews: GoogleReviewShort[] = [];
+        
+        // Fetch all reviews with pagination
+        let pageToken: string | undefined = undefined;
+        let reviewsResult = await this.getReviews(locationName);
+        
+        while (reviewsResult.success && reviewsResult.data) {
+            allReviews.push(...reviewsResult.data.reviews);
+            pageToken = reviewsResult.data.nextPageToken;
+            
+            if (!pageToken) break;
+            
+            reviewsResult = await this.getReviews(locationName, DEFAULTS.PAGE_SIZE, pageToken);
+        }
+        
+        if (!reviewsResult.success) {
+            return {
+                success: false,
+                error: reviewsResult.error,
+                errorCode: reviewsResult.errorCode
+            };
+        }
+        
+        // Group reviews by date (YYYY-MM-DD)
+        const reviewsByDate = new Map<string, GoogleReviewShort[]>();
+        
+        for (const review of allReviews) {
+            const date = review.createTime.split('T')[0]; // Extract YYYY-MM-DD
+            if (!reviewsByDate.has(date)) {
+                reviewsByDate.set(date, []);
+            }
+            reviewsByDate.get(date)!.push(review);
+        }
+        
+        // Calculate statistics for each day
+        const dayStats: GoogleReviewDayStat[] = [];
+        
+        for (const [date, reviews] of reviewsByDate.entries()) {
+            // Map star ratings to numeric values
+            const ratings = reviews.map(r => {
+                switch (r.starRating) {
+                    case 'ONE': return 1;
+                    case 'TWO': return 2;
+                    case 'THREE': return 3;
+                    case 'FOUR': return 4;
+                    case 'FIVE': return 5;
+                    default: return 0;
+                }
+            });
+            
+            // Calculate average rating
+            const averageRating = ratings.length > 0 
+                ? ratings.reduce((sum, rating) => sum + rating, 0 as number) / ratings.length 
+                : 0;
+            
+            // Build rating distribution
+            const ratingDistribution = {
+                ONE: reviews.filter(r => r.starRating === 'ONE').length,
+                TWO: reviews.filter(r => r.starRating === 'TWO').length,
+                THREE: reviews.filter(r => r.starRating === 'THREE').length,
+                FOUR: reviews.filter(r => r.starRating === 'FOUR').length,
+                FIVE: reviews.filter(r => r.starRating === 'FIVE').length
+            };
+            
+            // Extract comments
+            const comments = reviews
+                .filter(r => r.comment && r.comment.trim().length > 0)
+                .map(r => r.comment!)
+                .filter((comment): comment is string => comment !== undefined);
+            
+            dayStats.push({
+                date,
+                stat: {
+                    totalReviewCount: reviews.length,
+                    averageRating: Math.round(averageRating * 10) / 10,
+                    ratingDistribution,
+                    comments: comments
+                }
+            });
+        }
+        
+        // Sort by date descending (most recent first)
+        dayStats.sort((a, b) => b.date.localeCompare(a.date));
+        
+        logger.info(`Generated stats for ${dayStats.length} days from ${allReviews.length} reviews`);
+        
+        return {
+            success: true,
+            data: dayStats
+        };
+    }
+
+    async getUnrepliedReviews(locationName: string, pageSize = DEFAULTS.PAGE_SIZE, pageToken?: string): Promise<ServiceResponse<GoogleReview[]>> {
+        const reviewsResult = await this.getReviews(locationName, pageSize, pageToken);
+        if (!reviewsResult.success) {
+            return {
+                success: false,
+                error: reviewsResult.error,
+                errorCode: reviewsResult.errorCode
+            };
+        }
+        const reviews = filterUnrepliedReviews(reviewsResult.data?.reviews || []);
+            
+        // If no reviews without replies found but there's a next page, fetch it recursively
+        if (reviews.length === 0 && reviewsResult.data?.nextPageToken) {
+            logger.debug(`No reviews without replies on this page, fetching next page...`);
+            return this.getUnrepliedReviews(locationName, pageSize, reviewsResult.data.nextPageToken);
+        }
+
+        return {
+            success: true,
+            data: reviewsResult.data?.reviews || []
+        };
     }
     
     /**

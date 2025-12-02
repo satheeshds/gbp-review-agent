@@ -16,9 +16,10 @@ import type { IReviewService } from '../types/index.js';
 
 // Import tool implementations
 import { createListLocationsTool } from './tools/listLocations.js';
-import { createGetReviewsTool } from './tools/getReviews.js';
+import { createGetUnRepliedReviewsTool } from './tools/getReviews.js';
 import { createGenerateReplyTool } from './tools/generateReply.js';
 import { createPostReplyTool } from './tools/postReply.js';
+import { createGetReviewDayStatsTool } from './tools/getReviewDayStats.js';
 
 // Import resource implementations
 import { createBusinessProfileResource } from './resources/businessProfile.js';
@@ -30,6 +31,7 @@ import { createReviewsResource } from './resources/reviews.js';
 import { createReviewResponsePrompt } from './prompts/reviewResponse.js';
 import { createSentimentAnalysisPrompt } from './prompts/sentimentAnalysis.js';
 import { createManageReviewsPrompt } from './prompts/manageReviews.js';
+import { createAnalyzeReviewStatsPrompt } from './prompts/analyzeReviewStats.js';
 import { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/protocol.js';
 import { ServerNotification, ServerRequest } from '@modelcontextprotocol/sdk/types.js';
 
@@ -116,17 +118,17 @@ export class McpServer {
         );
         
         // Get reviews tool
-        const getReviewsTool = createGetReviewsTool(this.reviewService);
+        const getUnrepliedReviewsTool = createGetUnRepliedReviewsTool(this.reviewService);
         this.server.registerTool(
-            'get_reviews',
+            'get_unreplied_reviews',
             {
-                title: getReviewsTool.schema.title,
-                description: getReviewsTool.schema.description,
-                inputSchema: getReviewsTool.schema.inputSchema,
-                outputSchema: getReviewsTool.schema.outputSchema
+                title: getUnrepliedReviewsTool.schema.title,
+                description: getUnrepliedReviewsTool.schema.description,
+                inputSchema: getUnrepliedReviewsTool.schema.inputSchema,
+                outputSchema: getUnrepliedReviewsTool.schema.outputSchema
             },
             async (args: any) => {
-                return await getReviewsTool.handler(args);
+                return await getUnrepliedReviewsTool.handler(args);
             }
         );
         
@@ -157,6 +159,21 @@ export class McpServer {
             },
             async (args: any) => {
                 return await postReplyTool.handler(args);
+            }
+        );
+        
+        // Get review day stats tool
+        const getReviewDayStatsTool = createGetReviewDayStatsTool(this.reviewService);
+        this.server.registerTool(
+            'get_review_day_stats',
+            {
+                title: getReviewDayStatsTool.schema.title,
+                description: getReviewDayStatsTool.schema.description,
+                inputSchema: getReviewDayStatsTool.schema.inputSchema,
+                outputSchema: getReviewDayStatsTool.schema.outputSchema
+            },
+            async (args: any) => {
+                return await getReviewDayStatsTool.handler(args);
             }
         );
         
@@ -351,6 +368,32 @@ export class McpServer {
                 const prompt = await manageReviewsPrompt.handler();
                 return {
                     description: 'Instructions to manage pending reviews using MCP resources',
+                    messages: [
+                        {
+                            role: 'user',
+                            content: {
+                                type: 'text',
+                                text: prompt
+                            }
+                        }
+                    ]
+                };
+            }
+        );
+
+        // Analyze review statistics prompt
+        const analyzeReviewStatsPrompt = createAnalyzeReviewStatsPrompt();
+        this.server.registerPrompt(
+            'analyze_review_stats',
+            {
+                title: 'Analyze Review Statistics',
+                description: analyzeReviewStatsPrompt.description,
+                argsSchema: {}
+            },
+            async (args: any) => {
+                const prompt = await analyzeReviewStatsPrompt.handler();
+                return {
+                    description: 'Instructions to analyze review statistics with comprehensive insights',
                     messages: [
                         {
                             role: 'user',

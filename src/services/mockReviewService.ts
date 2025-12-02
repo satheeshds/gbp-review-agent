@@ -12,7 +12,8 @@ import type {
     ListLocationsResponse,
     GetReviewsResponse,
     PostReplyResponse,
-    IReviewService
+    IReviewService,
+    GoogleReviewDayStat
 } from '../types/index.js';
 
 export class MockReviewService implements IReviewService {
@@ -111,6 +112,12 @@ export class MockReviewService implements IReviewService {
         // Instant authentication for testing
         this.isAuthenticated = true;
         logger.info('Mock authentication completed successfully');
+    }
+    getReviewStats(locationName: string): Promise<ServiceResponse<GoogleReviewDayStat[]>> {
+        throw new Error('Method not implemented.');
+    }
+    getUnrepliedReviews(locationName: string, pageSize?: number, pageToken?: string): Promise<ServiceResponse<GoogleReview[]>> {
+        throw new Error('Method not implemented.');
     }
 
     /**
