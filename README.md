@@ -16,6 +16,31 @@ A Model Context Protocol (MCP) server that enables AI assistants to manage Googl
 - Node.js 18.0.0 or higher
 - Google Cloud Platform account with My Business API enabled
 - Google OAuth 2.0 credentials
+- **Google Business Profile API Access** (see requirements below)
+
+### Google Business Profile API Access Requirements
+
+Before you can use this MCP server, you must request and be approved for Google Business Profile API access. Google requires all applicants to:
+
+1. **Manage a verified Google Business Profile** that has been active for 60+ days
+   - This can be your own business or a client's business you manage
+2. **Have a website** representing the business listed on the Google Business Profile
+3. **Complete Google Business Profile** with current, up-to-date information
+
+**To request API access:**
+
+1. Go to the [Google Cloud Console](https://console.developers.google.com/project) and note your Project Number from the Project info card
+2. Submit your request using the [GBP API contact form](https://support.google.com/business/contact/api_default)
+   - Select "Application for Basic API Access" from the dropdown
+   - Provide your Project Number and all requested information
+   - Use an email address listed as an owner/manager on your business's GBP
+3. Wait for review - you'll receive a follow-up email with the decision
+
+**Check approval status** by viewing quotas in Google Cloud Console:
+- **0 QPM (Queries Per Minute)** = Not yet approved
+- **300 QPM** = Approved ✓
+
+For complete prerequisites, see the [official GBP API documentation](https://developers.google.com/my-business/content/prereqs).
 
 ## Setup
 
@@ -23,17 +48,18 @@ A Model Context Protocol (MCP) server that enables AI assistants to manage Googl
 
 1. Go to the [Google Cloud Console](https://console.cloud.google.com)
 2. Create a new project or select an existing one
-3. **Enable the following APIs**:
+3. **Request GBP API access** (see requirements above - this step is critical and may take time for approval)
+4. **Enable the following APIs** (after your project is approved):
    - Go to "APIs & Services" > "Library"
    - Search for and enable **"Google My Business API"**
-   - Search for and enable **"My Business Business Information API"**
-4. Create OAuth 2.0 credentials:
+   - Search for and enable **"My Business Account Management API"**
+5. Create OAuth 2.0 credentials:
    - Go to "Credentials" in the API & Services section
    - Click "Create Credentials" > "OAuth 2.0 Client IDs"
    - Set application type to "Web application"
    - Add authorized redirect URI: `http://localhost:3000/auth/callback`
    - Note down the Client ID and Client Secret
-5. **Configure OAuth Consent Screen**:
+6. **Configure OAuth Consent Screen**:
    - Go to "APIs & Services" > "OAuth consent screen"
    - Add test users (your Google account email that has access to the business profile)
    - Add required scopes: `business.manage`, `userinfo.email`, `userinfo.profile`
@@ -100,14 +126,57 @@ The server will start with STDIO transport for MCP communication.
 
 You can connect to this server using any MCP-compatible client:
 
+#### VS Code (GitHub Copilot)
+
+Add to your VS Code MCP settings file (`mcp.json`):
+
+**Windows:** `%APPDATA%\Code\User\profiles\<profile-id>\mcp.json`  
+**macOS/Linux:** `~/.config/Code/User/profiles/<profile-id>/mcp.json`
+
+```jsonc
+{
+  "servers": {
+    "google-business-reviews": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "C:\\path\\to\\review-mcp\\build\\index.js"
+      ],
+      "cwd": "C:\\path\\to\\review-mcp",
+      "env": {
+        "NODE_ENV": "production",
+        "GOOGLE_CLIENT_ID": "your-client-id.apps.googleusercontent.com",
+        "GOOGLE_CLIENT_SECRET": "your-client-secret",
+        "GOOGLE_REDIRECT_URI": "http://localhost:3000/auth/callback",
+        "LOG_LEVEL": "info"
+      },
+      "description": "Google Business Profile Review MCP Server - Manage reviews with AI-powered responses"
+    }
+  }
+}
+```
+
+**Important Notes:**
+- Replace `C:\\path\\to\\review-mcp` with the actual path to your project
+- Use double backslashes (`\\`) in Windows paths
+- Replace `your-client-id` and `your-client-secret` with your actual OAuth credentials
+- Make sure to run `npm run auth` first to authenticate before using in VS Code
+- Restart VS Code after adding the configuration
+
 #### Claude Desktop
+
 Add to your `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
     "google-business-reviews": {
       "command": "node",
-      "args": ["/path/to/build/index.js"]
+      "args": ["/path/to/review-mcp/build/index.js"],
+      "env": {
+        "GOOGLE_CLIENT_ID": "your-client-id.apps.googleusercontent.com",
+        "GOOGLE_CLIENT_SECRET": "your-client-secret",
+        "GOOGLE_REDIRECT_URI": "http://localhost:3000/auth/callback"
+      }
     }
   }
 }
